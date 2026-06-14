@@ -3,7 +3,7 @@ package tools
 import (
 	"context"
 
-	"github.com/hezidatong/to-tiny-claw/internal/schema"
+	"github.com/hezidatong/go-tiny-claw/internal/schema"
 )
 
 type Registry interface {

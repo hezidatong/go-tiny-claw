@@ -26,4 +26,5 @@ func NewAgentEngine(p provider.LLMProvider, r tools.Registry, workDir string) *A
 func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 	log.Printf("[Engine] 引擎启动，锁定工作区：%s\n", e.WorkDir)
 
+	return nil
 }
