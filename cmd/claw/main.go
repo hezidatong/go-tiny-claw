@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/hezidatong/go-tiny-claw/internal/engine"
+	"github.com/hezidatong/go-tiny-claw/internal/provider"
 	"github.com/hezidatong/go-tiny-claw/internal/schema"
 )
 
@@ -41,30 +42,46 @@ func (m *mockProvider) Generate(ctx context.Context, msgs []schema.Message, tool
 type mockRegistry struct{}
 
 func (m *mockRegistry) GetAvailableTools() []schema.ToolDefinition {
-	return []schema.ToolDefinition{{Name: "bash"}}
+	return []schema.ToolDefinition{
+		{
+			Name:        "get_weather",
+			Description: "获取指定城市的当前天气情况",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"city": map[string]interface{}{
+						"type": "string",
+					},
+				},
+				"required": []string{"city"},
+			},
+		},
+	}
 }
 
 func (m *mockRegistry) Execute(ctx context.Context, call schema.ToolCall) schema.ToolResult {
+	log.Printf(" -> [Mock 工具执行] 获取 %s 的天气中...\n", call.Name)
 	return schema.ToolResult{
 		ToolCallID: call.ID,
-		Output:     "-rw-r--r-- 1 user group 234 Oct 24 10:00 main.go\n",
+		Output:     "API 返回：今天是晴天，气温 25 度",
 		IsError:    false,
 	}
 }
 
 func main() {
-	//fmt.Println("欢迎来到 go-tiny-claw 引擎启动序列")
-	//
-	//log.Println("架构蓝图搭建完毕，等待各核心模块注入！")
+	if os.Getenv("ZHIPU_API_KEY") == "" {
+		log.Fatal("请先导出 ZHIPU_API_KEY 环境变量")
+	}
 
 	workDir, _ := os.Getwd()
 
-	p := &mockProvider{}
-	r := &mockRegistry{}
+	llmProvider := provider.NewZhipuOpenAIProvider("glm-4.5-air")
+	registry := &mockRegistry{}
 
-	eng := engine.NewAgentEngine(p, r, workDir, true)
+	eng := engine.NewAgentEngine(llmProvider, registry, workDir, true)
 
-	err := eng.Run(context.Background(), "帮我检查当前目录的文件")
+	prompt := "我想去北京跑步，帮我查查天气适合吗？"
+	err := eng.Run(context.Background(), prompt)
 	if err != nil {
 		log.Fatalf("引擎崩溃：%v", err)
 	}
