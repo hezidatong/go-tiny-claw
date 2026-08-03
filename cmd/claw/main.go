@@ -8,6 +8,7 @@ import (
 	"github.com/hezidatong/go-tiny-claw/internal/engine"
 	"github.com/hezidatong/go-tiny-claw/internal/provider"
 	"github.com/hezidatong/go-tiny-claw/internal/schema"
+	"github.com/hezidatong/go-tiny-claw/internal/tools"
 )
 
 type mockProvider struct {
@@ -69,18 +70,30 @@ func (m *mockRegistry) Execute(ctx context.Context, call schema.ToolCall) schema
 }
 
 func main() {
+	// 确保设置了 ZHIPU_API_KEY
 	if os.Getenv("ZHIPU_API_KEY") == "" {
 		log.Fatal("请先导出 ZHIPU_API_KEY 环境变量")
 	}
 
+	// 1. 获取工作区物理边界
 	workDir, _ := os.Getwd()
 
+	// 2. 初始化真实的大脑（指向智谱 GLM-4.5）
 	llmProvider := provider.NewZhipuOpenAIProvider("glm-4.5-air")
-	registry := &mockRegistry{}
+	//llmProvider := provider.NewZhipuClaudeProvider("glm-4.5-air")
 
-	eng := engine.NewAgentEngine(llmProvider, registry, workDir, true)
+	// 3. 初始化真实的 ToolRegistry
+	registry := tools.NewRegistry()
 
-	prompt := "我想去北京跑步，帮我查查天气适合吗？"
+	// 4. 将真实的 ReadFile 工具挂载到注册表中
+	readFileTool := tools.NewReadFileTool(workDir)
+	registry.Register(readFileTool)
+
+	// 5. 实例化核心引擎
+	eng := engine.NewAgentEngine(llmProvider, registry, workDir, false)
+
+	// 6. 下发一个必须通过真实工具才能完成的任务
+	prompt := "请调用工具读取一下当前工作区目录下 hello.txt 文件的内容，并用一句话向我总结它说了什么。"
 	err := eng.Run(context.Background(), prompt)
 	if err != nil {
 		log.Fatalf("引擎崩溃：%v", err)

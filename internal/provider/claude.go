@@ -21,7 +21,7 @@ func NewZhipuClaudeProvider(model string) *ClaudeProvider {
 	if apiKey == "" {
 		panic("请设置 ZHIPU_API_KEY 环境变量")
 	}
-	baseURL := "https://open.bigmodel.cn/api/paas/v4/"
+	baseURL := "https://open.bigmodel.cn/api/anthropic"
 	return &ClaudeProvider{
 		client: anthropic.NewClient(option.WithAPIKey(apiKey), option.WithBaseURL(baseURL)),
 		model:  model,
