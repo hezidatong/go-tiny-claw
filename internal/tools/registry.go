@@ -61,7 +61,7 @@ func (r *registryImpl) Execute(ctx context.Context, call schema.ToolCall) schema
 
 	output, err := tool.Execute(ctx, call.Arguments)
 	if err != nil {
-		errMsg := fmt.Sprintf("Error execting %s: %v", call.Name, err)
+		errMsg := fmt.Sprintf("Error executing %s: %v", call.Name, err)
 		return schema.ToolResult{
 			ToolCallID: call.ID,
 			Output:     errMsg,

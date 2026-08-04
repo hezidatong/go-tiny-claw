@@ -85,15 +85,21 @@ func main() {
 	// 3. 初始化真实的 ToolRegistry
 	registry := tools.NewRegistry()
 
-	// 4. 将真实的 ReadFile 工具挂载到注册表中
-	readFileTool := tools.NewReadFileTool(workDir)
-	registry.Register(readFileTool)
+	// 4. 挂载极简工具集
+	registry.Register(tools.NewReadFileTool(workDir))
+	registry.Register(tools.NewWriteFileTool(workDir))
+	registry.Register(tools.NewBashTool(workDir))
 
 	// 5. 实例化核心引擎
 	eng := engine.NewAgentEngine(llmProvider, registry, workDir, false)
 
 	// 6. 下发一个必须通过真实工具才能完成的任务
-	prompt := "请调用工具读取一下当前工作区目录下 hello.txt 文件的内容，并用一句话向我总结它说了什么。"
+	prompt := `
+	请帮我执行以下操作：
+	1. 用 bash 查看一下我当前电脑的 Go 版本。
+	2. 帮我写一个简单的 helloworld.go 文件，输出 “Hello, go-tiny-claw!”。
+	3. 用 bash 编译并运行这个 go 文件，确认它能正常工作。
+`
 	err := eng.Run(context.Background(), prompt)
 	if err != nil {
 		log.Fatalf("引擎崩溃：%v", err)
