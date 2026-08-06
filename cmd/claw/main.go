@@ -90,16 +90,20 @@ func main() {
 	registry.Register(tools.NewWriteFileTool(workDir))
 	registry.Register(tools.NewBashTool(workDir))
 
+	registry.Register(tools.NewEditFileTool(workDir))
+
 	// 5. 实例化核心引擎
 	eng := engine.NewAgentEngine(llmProvider, registry, workDir, false)
 
 	// 6. 下发一个必须通过真实工具才能完成的任务
 	prompt := `
-	请帮我执行以下操作：
-	1. 用 bash 查看一下我当前电脑的 Go 版本。
-	2. 帮我写一个简单的 helloworld.go 文件，输出 “Hello, go-tiny-claw!”。
-	3. 用 bash 编译并运行这个 go 文件，确认它能正常工作。
-`
+	我当前目录下有一个 server.go 文件。
+	请帮我把里面 ”TODO: 增加鉴权逻辑“ 下面的那个 if 语句，整个替换为：
+	if user == nil {
+		fmt.Println("Forbidden")
+		return
+	}
+	`
 	err := eng.Run(context.Background(), prompt)
 	if err != nil {
 		log.Fatalf("引擎崩溃：%v", err)
