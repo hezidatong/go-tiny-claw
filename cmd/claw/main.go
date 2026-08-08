@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/hezidatong/go-tiny-claw/internal/engine"
+	"github.com/hezidatong/go-tiny-claw/internal/feishu"
 	"github.com/hezidatong/go-tiny-claw/internal/provider"
 	"github.com/hezidatong/go-tiny-claw/internal/schema"
 	"github.com/hezidatong/go-tiny-claw/internal/tools"
@@ -89,19 +90,17 @@ func main() {
 	registry.Register(tools.NewReadFileTool(workDir))
 	registry.Register(tools.NewWriteFileTool(workDir))
 	registry.Register(tools.NewBashTool(workDir))
-
 	registry.Register(tools.NewEditFileTool(workDir))
 
 	// 5. 实例化核心引擎
 	eng := engine.NewAgentEngine(llmProvider, registry, workDir, true)
 
-	// 6. 下发一个必须通过真实工具才能完成的任务
-	prompt := `
-	我当前目录下有 a.txt, b.txt, c.txt 三个文件。
-	为了节省时间，请你同时一次性读取这三个文件，并将它们的内容综合起来，告诉我它们分别记录了什么领域的信息。
-	`
-	err := eng.Run(context.Background(), prompt)
-	if err != nil {
-		log.Fatalf("引擎崩溃：%v", err)
+	ctx, cancelFunc := context.WithCancel(context.Background())
+	defer cancelFunc()
+
+	bot := feishu.NewFeishuBot(eng)
+	log.Println("🚀 飞书 WebSocket 长连接模式启动...")
+	if err := bot.StartWebSocket(ctx); err != nil {
+		log.Fatalf("❌ WebSocket 连接失败: %v\n", err)
 	}
 }
