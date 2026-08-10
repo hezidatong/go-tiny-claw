@@ -2,3 +2,4 @@
 *.yaml
 hello*
 server.*
+.idea*

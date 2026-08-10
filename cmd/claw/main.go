@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/hezidatong/go-tiny-claw/internal/engine"
-	"github.com/hezidatong/go-tiny-claw/internal/feishu"
 	"github.com/hezidatong/go-tiny-claw/internal/provider"
 	"github.com/hezidatong/go-tiny-claw/internal/schema"
 	"github.com/hezidatong/go-tiny-claw/internal/tools"
@@ -78,9 +77,9 @@ func main() {
 
 	// 1. 获取工作区物理边界
 	workDir, _ := os.Getwd()
-
+	workDir += "/workspace"
 	// 2. 初始化真实的大脑（指向智谱 GLM-4.5）
-	llmProvider := provider.NewZhipuOpenAIProvider("glm-4.5-air")
+	llmProvider := provider.NewZhipuOpenAIProvider("glm-5.2")
 	//llmProvider := provider.NewZhipuClaudeProvider("glm-4.5-air")
 
 	// 3. 初始化真实的 ToolRegistry
@@ -98,9 +97,20 @@ func main() {
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	defer cancelFunc()
 
-	bot := feishu.NewFeishuBot(eng)
-	log.Println("🚀 飞书 WebSocket 长连接模式启动...")
-	if err := bot.StartWebSocket(ctx); err != nil {
-		log.Fatalf("❌ WebSocket 连接失败: %v\n", err)
+	// 启动飞书终端
+	//bot := feishu.NewFeishuBot(eng)
+	//log.Println("🚀 飞书 WebSocket 长连接模式启动...")
+	//if err := bot.StartWebSocket(ctx); err != nil {
+	//	log.Fatalf("❌ WebSocket 连接失败: %v\n", err)
+	//}
+
+	reporter := engine.NewTerminalReporter()
+	prompt := `
+	我需要在当前目录下新建一个 ping.go，提供一个简单的 http ping 接口。
+	写完之后，帮我把代码用 git 提交一下。
+`
+	err := eng.Run(ctx, prompt, reporter)
+	if err != nil {
+		log.Fatalf("引擎运行崩溃：%v", err)
 	}
 }
