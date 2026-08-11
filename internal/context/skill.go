@@ -34,7 +34,7 @@ func (s *SkillLoader) LoadAll() string {
 	}
 
 	var skillsBuilder strings.Builder
-	skillsBuilder.WriteString("\n### 可用专业技能（Agent Skills\n）")
+	skillsBuilder.WriteString("\n### 可用专业技能（Agent Skills）\n")
 	skillsBuilder.WriteString("以下是你拥有的标准化外挂技能，请在符合 description 描述的场景下严格遵循其正文指令：\n\n")
 
 	err := filepath.WalkDir(skillBaseDir, func(path string, d fs.DirEntry, err error) error {

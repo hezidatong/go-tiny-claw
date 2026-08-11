@@ -44,7 +44,7 @@ func (c *PromptComposer) Build() schema.Message {
 	agentsMDPath := filepath.Join(c.workDir, "AGENTS.md")
 	content, err := os.ReadFile(agentsMDPath)
 	if err == nil {
-		promptBuilder.WriteString("\n# 项目专属指南（来自 AGENTS.md\n）")
+		promptBuilder.WriteString("\n# 项目专属指南（来自 AGENTS.md）\n")
 		promptBuilder.WriteString("以下是当前工作区特有的架构规范与注意事项，你的行为必须绝对符合以下要求：\n")
 		promptBuilder.WriteString("```markdown\n")
 		promptBuilder.WriteString(string(content))
