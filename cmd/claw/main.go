@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"flag"
+	"fmt"
 	"log"
 	"os"
 
@@ -71,6 +73,14 @@ func (m *mockRegistry) Execute(ctx context.Context, call schema.ToolCall) schema
 }
 
 func main() {
+	// 通过命令行参数接收用户的 prompt
+	promptPtr := flag.String("prompt", "", "要交给 Agent 执行的任务描述")
+	flag.Parse()
+
+	if *promptPtr == "" {
+		fmt.Println("用法：go cun cmd/claw/main.go -prompt \"你的任务指令\"")
+		os.Exit(1)
+	}
 	// 确保设置了 ZHIPU_API_KEY
 	if os.Getenv("ZHIPU_API_KEY") == "" {
 		log.Fatal("请先导出 ZHIPU_API_KEY 环境变量")
@@ -78,7 +88,7 @@ func main() {
 
 	// 1. 获取工作区物理边界
 	workDir, _ := os.Getwd()
-	//workDir += "/workspace"
+	workDir += "/workspace"
 	// 2. 初始化真实的大脑（指向智谱 GLM-4.5）
 	llmProvider := provider.NewZhipuOpenAIProvider("glm-4.5-air")
 	//llmProvider := provider.NewZhipuClaudeProvider("glm-4.5-air")
@@ -90,10 +100,10 @@ func main() {
 	registry.Register(tools.NewReadFileTool(workDir))
 	registry.Register(tools.NewWriteFileTool(workDir))
 	registry.Register(tools.NewBashTool(workDir))
-	//registry.Register(tools.NewEditFileTool(workDir))
+	registry.Register(tools.NewEditFileTool(workDir))
 
 	// 5. 实例化核心引擎
-	eng := engine.NewAgentEngine(llmProvider, registry, false)
+	eng := engine.NewAgentEngine(llmProvider, registry, false, true)
 
 	// 启动飞书终端
 	//bot := feishu.NewFeishuBot(eng)
@@ -104,17 +114,12 @@ func main() {
 
 	reporter := engine.NewTerminalReporter()
 
-	sessionID := "test_oom_protection_001"
+	sessionID := "test_web_server_001"
 	sess := ctxpkg.GlobalSessionMgr.GetOrCreate(sessionID, workDir)
 
-	// 发起一个会导致读取大文件的恶意任务
-	prompt := `
-	请帮我执行以下三个步骤：
-	1. 使用 bash 执行 echo "开始排查日志"
-	2. 使用 read_file 工具读取当前目录下的巨大文件 mock_log.txt
-	3. 使用 bash 执行 date 命令获取当前时间，并告诉我任务完成。
-`
-	sess.Append(schema.Message{Role: schema.RoleUser, Content: prompt})
+	log.Printf("\n>>> 🚀 收到指令：%s\n", *promptPtr)
+	sess.Append(schema.Message{Role: schema.RoleUser, Content: *promptPtr})
+
 	err := eng.Run(context.Background(), sess, reporter)
 	if err != nil {
 		log.Fatalf("引擎运行崩溃：%v", err)

@@ -16,31 +16,30 @@ type AgentEngine struct {
 	provider       provider.LLMProvider
 	registry       tools.Registry
 	EnableThinking bool
-	composer       *ctxpkg.PromptComposer
+	PlanMode       bool              // 暴露给外部的计划模式开关
 	compactor      *ctxpkg.Compactor // 【新增】压缩器实例
 }
 
 // NewAgentEngine 【注意】：我们移除了 Engine 层级的 WorkDir，因为 WorkDir 应该跟随 Session 走！
-func NewAgentEngine(p provider.LLMProvider, r tools.Registry, enableThinking bool) *AgentEngine {
+func NewAgentEngine(p provider.LLMProvider, r tools.Registry, enableThinking bool, planMode bool) *AgentEngine {
 	return &AgentEngine{
 		provider:       p,
 		registry:       r,
 		EnableThinking: enableThinking,
-		// (假装这里能获取到 WorkDir 初始化 Composer，生产环境中应在 Run 中动态构造)
-		composer: ctxpkg.NewPromptComposer("."),
+		PlanMode:       planMode,
 		//【初始化压缩器】：为了便于今天的极端测试，我们将水位线阈值设积极（例如 3000 字符）
 		// 并保护最近的6条消息（大约两轮 Turn 的交互）
-		compactor: ctxpkg.NewCompactor(3000, 6),
+		compactor: ctxpkg.NewCompactor(20000, 6),
 	}
 }
 
 // Run 【核心改造】：移除 userPrompt 参数，改为接收一个具体的 Session 实例
 func (e *AgentEngine) Run(ctx context.Context, session *ctxpkg.Session, reporter Reporter) error {
-	log.Printf("[Engine] 唤醒会话 [%s]，锁定工作区：%s\n", session.ID, session.WorkDir)
+	log.Printf("[Engine] 唤醒会话 [%s]，锁定工作区：%s (PlanMode: %v)\n", session.ID, session.WorkDir, e.PlanMode)
 
 	// 根据当前 Session 的工作区，动态组装最新的 SystemPrompt
-	e.composer = ctxpkg.NewPromptComposer(session.WorkDir)
-	systemMsg := e.composer.Build()
+	composer := ctxpkg.NewPromptComposer(session.WorkDir, e.PlanMode)
+	systemMsg := composer.Build()
 
 	for {
 		availableTools := e.registry.GetAvailableTools()

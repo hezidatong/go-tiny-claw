@@ -48,9 +48,9 @@ func (p *ClaudeProvider) Generate(ctx context.Context, msgs []schema.Message, av
 			}
 		case schema.RoleAssistant:
 			var blocks []anthropic.ContentBlockParamUnion
-			if msg.Content != "" {
-				blocks = append(blocks, anthropic.NewTextBlock(msg.Content))
-			}
+			//if msg.Content != "" {
+			blocks = append(blocks, anthropic.NewTextBlock(msg.Content))
+			//}
 
 			// 将历史工具调用转回 Claude 特有的 ToolUseBlockParam
 			for _, tc := range msg.ToolCalls {

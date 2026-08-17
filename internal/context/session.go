@@ -57,7 +57,8 @@ func (s *Session) GetWorkingMemory(limit int) []schema.Message {
 
 	// 截取最近的 limit 条消息
 	res := make([]schema.Message, limit)
-	copy(res, s.history[total-limit:])
+	copy(res[:1], s.history[:1])
+	copy(res[1:], s.history[total-limit+1:])
 
 	// 【驾驭防线】：大模型 API 强制要求历史消息的连续性！
 	// 如果我们截断的第一条消息恰好是一个 ToolResult（RoleUser 且含有 ToolCallID）,
