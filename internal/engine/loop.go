@@ -20,6 +20,7 @@ type AgentEngine struct {
 	PlanMode       bool                    // 暴露给外部的计划模式开关
 	compactor      *ctxpkg.Compactor       //【新增】压缩器实例
 	recovery       *ctxpkg.RecoveryManager //【新增】自愈管理器
+	injector       *ReminderInjector       // 提醒注入器
 }
 
 // NewAgentEngine 【注意】：我们移除了 Engine 层级的 WorkDir，因为 WorkDir 应该跟随 Session 走！
@@ -33,6 +34,7 @@ func NewAgentEngine(p provider.LLMProvider, r tools.Registry, enableThinking boo
 		// 并保护最近的6条消息（大约两轮 Turn 的交互）
 		compactor: ctxpkg.NewCompactor(20000, 6),
 		recovery:  ctxpkg.NewRecoveryManager(),
+		injector:  NewReminderInjector(), // 初始化注入器
 	}
 }
 
@@ -110,6 +112,11 @@ func (e *AgentEngine) Run(ctx context.Context, session *ctxpkg.Session, reporter
 		var wg sync.WaitGroup
 		observationMsgs := make([]schema.Message, len(actionResp.ToolCalls))
 
+		// 收集本轮执行的最后一个工具，供 Reminder 探测器分析
+		// （在真实的工业级架构中，如果并发调用了多个工具，可以逐个分析或仅分析报错的那个，此处简化为去第一个。）
+		var lastToolCall schema.ToolCall
+		var lastToolResult schema.ToolResult
+
 		for i, toolCall := range actionResp.ToolCalls {
 			wg.Add(1)
 
@@ -128,9 +135,6 @@ func (e *AgentEngine) Run(ctx context.Context, session *ctxpkg.Session, reporter
 				if result.IsError {
 					// 发生错误，交由 RecoveryManager 诊断并注入“锦囊妙计”
 					finalOutput = e.recovery.AnalyzeAndInject(call.Name, result.Output)
-					log.Printf("  -> [Go-%d] ❌ 注入救援指南: %s\n", idx, finalOutput)
-				} else {
-					log.Printf("  -> [Go-%d] ✅ 工具执行成功（返回 %d 字节）\n", idx, len(result.Output))
 				}
 
 				if reporter != nil {
@@ -145,7 +149,13 @@ func (e *AgentEngine) Run(ctx context.Context, session *ctxpkg.Session, reporter
 				observationMsgs[idx] = schema.Message{
 					Role:       schema.RoleUser,
 					Content:    finalOutput,
-					ToolCallID: toolCall.ID,
+					ToolCallID: call.ID,
+				}
+
+				// 捕获状态供外部探测器使用
+				if idx == 0 {
+					lastToolCall = call
+					lastToolResult = result
 				}
 
 			}(i, toolCall)
@@ -153,8 +163,16 @@ func (e *AgentEngine) Run(ctx context.Context, session *ctxpkg.Session, reporter
 
 		wg.Wait()
 
-		// 将所有的工具执行结果（Observation）持久化到 Session 中，开启下一轮的复盘与推理
+		// 1.先将普通的工具执行结果存入 Session
 		session.Append(observationMsgs...)
+
+		// 2.【核心防线】：在准备进入下一轮之前，进行死循环探测
+		reminderMsg := e.injector.CheckAndInject(lastToolCall, lastToolResult)
+		if reminderMsg != nil {
+			// 如果触发了干预规则，将这条严厉的提醒作为 User 消息，强制追加到 Session 的末尾！
+			// 大模型在下一轮被唤醒时，第一眼就会看到这句话，从而打破局部执念。
+			session.Append(*reminderMsg)
+		}
 	}
 
 	return nil
