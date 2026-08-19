@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"flag"
-	"fmt"
 	"log"
 	"os"
 
@@ -74,13 +72,13 @@ func (m *mockRegistry) Execute(ctx context.Context, call schema.ToolCall) schema
 
 func main() {
 	// 通过命令行参数接收用户的 prompt
-	promptPtr := flag.String("prompt", "", "要交给 Agent 执行的任务描述")
-	flag.Parse()
-
-	if *promptPtr == "" {
-		fmt.Println("用法：go cun cmd/claw/main.go -prompt \"你的任务指令\"")
-		os.Exit(1)
-	}
+	//promptPtr := flag.String("prompt", "", "要交给 Agent 执行的任务描述")
+	//flag.Parse()
+	//
+	//if *promptPtr == "" {
+	//	fmt.Println("用法：go cun cmd/claw/main.go -prompt \"你的任务指令\"")
+	//	os.Exit(1)
+	//}
 	// 确保设置了 ZHIPU_API_KEY
 	if os.Getenv("ZHIPU_API_KEY") == "" {
 		log.Fatal("请先导出 ZHIPU_API_KEY 环境变量")
@@ -103,7 +101,7 @@ func main() {
 	registry.Register(tools.NewEditFileTool(workDir))
 
 	// 5. 实例化核心引擎
-	eng := engine.NewAgentEngine(llmProvider, registry, false, true)
+	eng := engine.NewAgentEngine(llmProvider, registry, false, false)
 
 	// 启动飞书终端
 	//bot := feishu.NewFeishuBot(eng)
@@ -114,11 +112,26 @@ func main() {
 
 	reporter := engine.NewTerminalReporter()
 
-	sessionID := "test_web_server_001"
+	sessionID := "test_recovery_001"
 	sess := ctxpkg.GlobalSessionMgr.GetOrCreate(sessionID, workDir)
 
-	log.Printf("\n>>> 🚀 收到指令：%s\n", *promptPtr)
-	sess.Append(schema.Message{Role: schema.RoleUser, Content: *promptPtr})
+	prompt := `
+	我当前目录下有一个 auth.go 文件。
+	请修改 auth.go 中的 login 函数。
+	请直接使用 edit_file 工具替换下面的代码块，将判断条件改为同时允许“admin”、“root”和“guest”三种用户登录:
+
+	// 鉴权入口函数
+	func login(user string) bool {
+		// 检查用户名
+		if user == "admin" {
+			return true
+		}
+		return false
+	}
+`
+
+	log.Printf("\n>>> 🚀 启动自愈任务...")
+	sess.Append(schema.Message{Role: schema.RoleUser, Content: prompt})
 
 	err := eng.Run(context.Background(), sess, reporter)
 	if err != nil {
