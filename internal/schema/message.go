@@ -10,13 +10,19 @@ const (
 	RoleAssistant Role = "assistant"
 )
 
+// Usage 记录了单次大模型 API 调用的 Token 消耗
+type Usage struct {
+	PromptTokens     int `json:"prompt_tokens"`     // 输入的 Token 数量
+	CompletionTokens int `json:"completion_tokens"` // 产生的 Token 数量
+}
+
+// Message 代表上下文中传递的单条信息
 type Message struct {
-	Role    Role   `json:"role"`
-	Content string `json:"content"`
-
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
-
-	ToolCallID string `json:"tool_call_id,omitempty"`
+	Role       Role       `json:"role"`
+	Content    string     `json:"content"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Usage      *Usage     `json:"usage,omitempty"` // 如果这是大模型（Assistant）的回复，此字段存放本次调用的 Token 消耗
 }
 
 type ToolCall struct {
