@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	ctxpkg "github.com/hezidatong/go-tiny-claw/internal/context"
+	"github.com/hezidatong/go-tiny-claw/internal/observability"
 	"github.com/hezidatong/go-tiny-claw/internal/provider"
 	"github.com/hezidatong/go-tiny-claw/internal/schema"
 	"github.com/hezidatong/go-tiny-claw/internal/tools"
@@ -42,23 +43,43 @@ func NewAgentEngine(p provider.LLMProvider, r tools.Registry, enableThinking boo
 func (e *AgentEngine) Run(ctx context.Context, session *ctxpkg.Session, reporter Reporter) error {
 	log.Printf("[Engine] 唤醒会话 [%s]，锁定工作区：%s (PlanMode: %v)\n", session.ID, session.WorkDir, e.PlanMode)
 
+	//【埋点 1】：开启 RootSpan，记录整个任务的生命周期
+	ctx, rootSpan := observability.StartSpan(ctx, "Agent.Run")
+	rootSpan.AddAttribute("SessionID", session.ID)
+	rootSpan.AddAttribute("WorkDir", session.WorkDir)
+
+	// defer 保证在引擎退出时，无论成功失败，都能结束根 Span 并导出 Trace 报告
+	defer func() {
+		rootSpan.EndSpan()
+		_ = observability.ExportTraceToFile(rootSpan, session.WorkDir, session.ID)
+		log.Printf("🎹 [Tracing] 本次任务的执行回访链路已保存至工作区的 .claw/traces 目录下\n")
+	}()
+
 	// 根据当前 Session 的工作区，动态组装最新的 SystemPrompt
 	composer := ctxpkg.NewPromptComposer(session.WorkDir, e.PlanMode)
 	systemMsg := composer.Build()
 
+	turnCount := 0
 	for {
-		availableTools := e.registry.GetAvailableTools()
+		turnCount++
 
+		//【埋点 2】：记录单次 Turn 循环
+		turnCtx, turnSpan := observability.StartSpan(ctx, fmt.Sprintf("Turn-%d", turnCount))
+		defer turnSpan.EndSpan() // 利用 defer，哪怕遇到 break 或 error 也会计算耗时
+
+		availableTools := e.registry.GetAvailableTools()
 		// 1. 从 Session 提取出近期的 WorkingMemory（例如最近的 20 条，给压缩器留下充足判断空间）
 		workingMemory := session.GetWorkingMemory(20)
 
 		var contextHistory []schema.Message
 		contextHistory = append(contextHistory, systemMsg)
 		contextHistory = append(contextHistory, workingMemory...)
-
 		// 2. 【核心注入点】：在向 Provider 发起推理前，过一遍内存压缩器
 		// 无论你带出了多少上下文，如果字符总数超标，早期日志将被掩码化，超大日志将被掐头去尾
 		compactedContext := e.compactor.Compact(contextHistory)
+
+		// 记录发给模型的实际上下文大小，非常有助于排查幻觉
+		turnSpan.AddAttribute("context_message_count", len(compactedContext))
 
 		var currentTurnThinkingContent string
 
@@ -66,10 +87,14 @@ func (e *AgentEngine) Run(ctx context.Context, session *ctxpkg.Session, reporter
 		// Phase 1: 慢思考阶段（Thinking）- 剥夺工具，强制规划
 		if e.EnableThinking {
 			if reporter != nil {
-				reporter.OnThinking(ctx)
+				reporter.OnThinking(turnCtx)
 			}
 
-			thinkResp, err := e.provider.Generate(ctx, compactedContext, nil)
+			//【埋点 3】：记录 Thinking 调用
+			thinkCtx, thinkSpan := observability.StartSpan(turnCtx, "LLM.Thinking")
+			thinkResp, err := e.provider.Generate(thinkCtx, compactedContext, nil)
+			thinkSpan.EndSpan() // 结束思考跨度
+
 			if err != nil {
 				return fmt.Errorf("thinking 阶段失败：%w", err)
 			}
@@ -83,7 +108,11 @@ func (e *AgentEngine) Run(ctx context.Context, session *ctxpkg.Session, reporter
 		}
 
 		// ======================= Phase 2: Action ===============================
-		actionResp, err := e.provider.Generate(ctx, compactedContext, availableTools)
+		//【埋点 4】：记录 Action 调用
+		actCtx, actSpan := observability.StartSpan(turnCtx, "LLM.Action")
+		actionResp, err := e.provider.Generate(actCtx, compactedContext, availableTools)
+		actSpan.EndSpan()
+
 		if err != nil {
 			return fmt.Errorf("action 阶段失败：%w", err)
 		}
@@ -100,7 +129,7 @@ func (e *AgentEngine) Run(ctx context.Context, session *ctxpkg.Session, reporter
 		//compactedContext = append(compactedContext, *actionResp)
 
 		if actionResp.Content != "" && reporter != nil {
-			reporter.OnMessage(ctx, actionResp.Content)
+			reporter.OnMessage(turnCtx, actionResp.Content)
 		}
 
 		if len(actionResp.ToolCalls) == 0 {
@@ -124,11 +153,11 @@ func (e *AgentEngine) Run(ctx context.Context, session *ctxpkg.Session, reporter
 				defer wg.Done()
 
 				if reporter != nil {
-					reporter.OnToolCall(ctx, call.Name, string(call.Arguments))
+					reporter.OnToolCall(turnCtx, call.Name, string(call.Arguments))
 				}
 
 				// 底层物理执行工具
-				result := e.registry.Execute(ctx, call)
+				result := e.registry.Execute(turnCtx, call)
 
 				// 【核心拦截与注入】
 				finalOutput := result.Output
@@ -142,7 +171,7 @@ func (e *AgentEngine) Run(ctx context.Context, session *ctxpkg.Session, reporter
 					if len(displayOutput) > 200 {
 						displayOutput = displayOutput[:200] + "...(已截断)"
 					}
-					reporter.OnToolResult(ctx, call.Name, displayOutput, result.IsError)
+					reporter.OnToolResult(turnCtx, call.Name, displayOutput, result.IsError)
 				}
 
 				// 将注入过 Recovery Hint 的最终结果写入上下文历史

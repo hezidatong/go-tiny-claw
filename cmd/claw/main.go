@@ -7,7 +7,6 @@ import (
 
 	ctxpkg "github.com/hezidatong/go-tiny-claw/internal/context"
 	"github.com/hezidatong/go-tiny-claw/internal/engine"
-	"github.com/hezidatong/go-tiny-claw/internal/observability"
 	"github.com/hezidatong/go-tiny-claw/internal/provider"
 	"github.com/hezidatong/go-tiny-claw/internal/schema"
 	"github.com/hezidatong/go-tiny-claw/internal/tools"
@@ -86,37 +85,34 @@ func main() {
 	}
 
 	workDir, _ := os.Getwd()
+	workDir += "/workspace"
 	modelName := "glm-4.5-air"
 
 	// 1. 初始化真实的底层大脑
-	realProvider := provider.NewZhipuOpenAIProvider(modelName)
+	llmProvider := provider.NewZhipuOpenAIProvider(modelName)
 
-	sessionID := "test_observability_001"
+	sessionID := "test_trace_001"
 	sess := ctxpkg.GlobalSessionMgr.GetOrCreate(sessionID, workDir)
-
-	// 2. 核心拼装：用 Tracker 将真实的大脑包裹起来
-	trackedProvider := observability.NewCostTracker(realProvider, modelName, sess)
 
 	Registry := tools.NewRegistry()
 	Registry.Register(tools.NewBashTool(workDir))
+	Registry.Register(tools.NewWriteFileTool(workDir))
 
-	// 3. 将被包裹的 Provider 注入给 Engine（Engine 毫不知情）
-	eng := engine.NewAgentEngine(trackedProvider, Registry, false, false)
+	eng := engine.NewAgentEngine(llmProvider, Registry, false, false)
 	reporter := engine.NewTerminalReporter()
 
-	prompt := `请用 bash 帮我用 date 命令查一下现在的时间。`
+	// 触发一个跨工具类型的并发任务
+	prompt := `
+	为了加快执行速度，请你在一轮回复中，【同时并行】完成以下两件事：
+	1. 使用 bash 工具执行 'sleep 2 && echo "系统环境检查完毕"'
+	2. 使用 write_file 工具，在当前目录下创建一个 'trace_test.md'，内容写上 "测试并发的写入"。
+	请确保你是分别调用两个不同的工具，不要试图把它们合并成一个命令！
+`
 
-	log.Println("\n>>> 🚀 启动带仪表盘的可观测性测试...")
 	sess.Append(schema.Message{Role: schema.RoleUser, Content: prompt})
 
+	log.Println("\n>>> 🚀 启动带 Tracing 链路追踪的测试...")
 	if err := eng.Run(context.Background(), sess, reporter); err != nil {
 		log.Fatalf("引擎运行崩溃: %v\n", err)
 	}
-
-	log.Printf("\n===================== 财务报表====================\n")
-	log.Printf("会话 ID: %s\n", sess.ID)
-	log.Printf("总消耗 Input Tokens: %d\n", sess.TotalPromptTokens)
-	log.Printf("总消耗 Output Tokens: %d\n", sess.TotalCompletionTokens)
-	log.Printf("总计费用（CNY）: ¥%.6f\n", sess.TotalCostCNY)
-	log.Printf("==================================================\n")
 }
