@@ -37,7 +37,7 @@ func main() {
 		},
 	}
 
-	// 启动跑分执行器
+	// 自动化跑分入口，启动跑分执行器
 	runner := eval.NewBenchmarkRunner("glm-4.5-air")
 	runner.RunSuite(context.Background(), testcases)
 
