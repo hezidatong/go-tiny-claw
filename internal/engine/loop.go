@@ -133,7 +133,7 @@ func (e *AgentEngine) Run(ctx context.Context, session *ctxpkg.Session, reporter
 		}
 
 		if len(actionResp.ToolCalls) == 0 {
-			// 如果没有工具调用，说明本次任务已完成，打破 ReAct 循环，挂起等待人类的下一条指令
+			// 如果没有工具调用，说明本次任务已完成
 			break
 		}
 
