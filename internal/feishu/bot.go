@@ -18,16 +18,42 @@ import (
 	"github.com/larksuite/oapi-sdk-go/v3/ws"
 )
 
+// ==================================================
+// 1. Context 传递机制：解决并发 Reporter 的提取
+// ==================================================
+
+// reporterKey 定义 Context 中存放 Reporter 的专属键
+type reporterKey struct{}
+
+// ContextWithReporter 将专属的 Reporter 封入上下文
+func ContextWithReporter(ctx context.Context, r engine.Reporter) context.Context {
+	return context.WithValue(ctx, reporterKey{}, r)
+}
+
+// ReporterFromContext 供底层的 Middleware 提取专属的 Reporter 发送审批卡片
+func ReporterFromContext(ctx context.Context) engine.Reporter {
+	if r, ok := ctx.Value(reporterKey{}).(engine.Reporter); ok {
+		return r
+	}
+	return nil
+}
+
+// ==================================================
+// 2. 飞书 Bot 核心调度器
+// ==================================================
+
+// AgentEngineFactory 允许每次收到消息时，根据 Session 动态创建引擎
+type AgentEngineFactory func(session *ctxpkg.Session) *engine.AgentEngine
+
 type FeishuBot struct {
 	client    *lark.Client
 	appId     string
 	appSecret string
-	engine    *engine.AgentEngine
-	sess      *ctxpkg.Session
-	r         *FeishuReporter
+	workDir   string             // 保存从入口传来的工作区路径
+	factory   AgentEngineFactory // 替换掉原来的单一 engine 引用
 }
 
-func NewFeishuBot(eng *engine.AgentEngine, sess *ctxpkg.Session) *FeishuBot {
+func NewFeishuBotWithFactory(workDir string, factory AgentEngineFactory) *FeishuBot {
 	appID := os.Getenv("FEISHU_APP_ID")
 	appSecret := os.Getenv("FEISHU_APP_SECRET")
 
@@ -41,8 +67,8 @@ func NewFeishuBot(eng *engine.AgentEngine, sess *ctxpkg.Session) *FeishuBot {
 		client:    client,
 		appId:     appID,
 		appSecret: appSecret,
-		engine:    eng,
-		sess:      sess,
+		workDir:   workDir, // 接收外部传入的路径
+		factory:   factory,
 	}
 }
 
@@ -112,30 +138,39 @@ func (b *FeishuBot) createEventDispatcher(verifyToken, encryptKey string) *dispa
 			return nil
 		}).
 		OnP2MessageReadV1(func(ctx context.Context, event *larkim.P2MessageReadV1) error {
+			// 消息已读事件，静默忽略
 			return nil
 		})
 
 	return handler
 }
 
-// Reporter 返回 FeishuBot 绑定的 Reporter
-func (b *FeishuBot) Reporter() *FeishuReporter {
-	return b.r
-}
-
 func (b *FeishuBot) handleAgentRun(chatId string, prompt string) {
+	// 为当前并发请求实例化一个专属的 Reporter
 	reporter := &FeishuReporter{
 		client: b.client,
 		chatId: chatId,
 	}
-	b.r = reporter
-	b.sess.Append(schema.Message{Role: schema.RoleUser, Content: prompt}) // 将 prompt 加入会话中
 
-	err := b.engine.Run(context.Background(), b.sess, reporter)
+	// 1. 获取物理隔离的 Session
+	sess := ctxpkg.GlobalSessionMgr.GetOrCreate(chatId, b.workDir)
+	sess.Append(schema.Message{Role: schema.RoleUser, Content: prompt}) // 将 prompt 加入会话中
+
+	// 2. 通过工厂模式，为当前会话生成一个挂载了专属 CostTracker 的新引擎
+	eng := b.factory(sess)
+
+	// 3.【驾驭核心】：将专属的 reporter 塞入 Context 并传给引擎
+	runCtx := ContextWithReporter(context.Background(), reporter)
+
+	err := eng.Run(runCtx, sess, reporter)
 	if err != nil {
 		reporter.sendMsg(fmt.Sprintf("❌ Agent 运行崩溃：%v", err))
 	}
 }
+
+// ==================================================
+// 3. 飞书 Reporter 实现
+// ==================================================
 
 type FeishuReporter struct {
 	client *lark.Client
